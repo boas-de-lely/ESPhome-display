@@ -1,0 +1,265 @@
+esphome:
+  name: esphome-web-b36674
+  friendly_name: ESPHome display
+  min_version: 2025.9.0
+  name_add_mac_suffix: false
+
+globals:
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+logger:
+
+api:
+
+ota:
+  platform: esphome
+
+wifi:
+  ssid: "!secrets wifi_ssid"
+  password: "!secrets wifi_password"
+  ap:
+    ssid: "esp32_st7789_ap"
+    password: "12345678"
+    
+
+spi:
+  clk_pin: 18
+  mosi_pin: 23
+
+font:
+  - file: "fonts/arial.ttf"
+    id: font_large
+    size: 48
+  - file: "fonts/arial.ttf"
+    id: font_small
+    size: 24
+  - file: "fonts/arial.ttf"
+    id: font_medium
+    size: 28
+
+
+image:
+  - file: mdi:thermometer
+    id: icon_temp
+    type: BINARY
+    transparency: chroma_key
+    resize: 32x32
+  - file: mdi:home-thermometer-outline
+    id: icon_temp_outd
+    type: BINARY
+    transparency: chroma_key
+    resize: 32x32
+  - file: mdi:water-percent
+    id: icon_hum
+    type: BINARY
+    transparency: chroma_key
+    resize: 32x32
+  - file: mdi:transmission-tower-import
+    id: icon_import
+    type: BINARY
+    transparency: chroma_key
+    resize: 32x32
+  - file: mdi:transmission-tower-export
+    id: icon_export
+    type: BINARY
+    transparency: chroma_key
+    resize: 32x32
+
+time:
+  - platform: sntp
+    id: esptime
+
+psram:
+  mode: quad
+  speed: 80MHz
+
+i2c:
+  sda: 21
+  scl: 22
+  scan: true
+  frequency: 15kHz
+
+sensor:
+  - platform: homeassistant
+    id: energie_verbruik
+    entity_id: sensor.electricity_meter_energieverbruik #<< add your own sensor here
+
+  - platform: homeassistant
+    id: energie_productie
+    entity_id: sensor.electricity_meter_energieproductie #<< add your own sensor here
+
+  - platform: homeassistant
+    id: temp_buiten
+    entity_id: sensor.openweathermap_temperature #<< add your own sensor here
+
+  - platform: homeassistant
+    id: temp_thermostaat #<< add your own sensor here
+    entity_id: sensor.thermostat_hc1_current_room_temperature #<< add your own sensor here
+
+  - platform: hdc1080
+    temperature:
+      name: "Temp"
+      id: temp_hdc1080
+      filters:
+        - offset: -13.5
+    humidity:
+      name: "Hum"
+      id: hum_hdc1080
+      filters:
+        - offset: +30
+    update_interval: 60s
+
+  - platform: ags10
+    tvoc:
+      name: "woonkamer TVOC"
+      id: ags10_tvoc
+    update_interval: 300s
+
+  - platform: adc
+    pin: 34
+    id: als_pt204_lux
+    name: "Licht"
+    unit_of_measurement: "lx"
+    attenuation: 12db
+    update_interval: 30s
+    filters:
+      - calibrate_linear:
+          - 0.14 -> 0
+          - 3.05 -> 516
+
+output:
+  - platform: gpio
+    pin: 32
+    id: gpio32_led
+
+  - platform: gpio
+    pin: 33
+    id: gpio33_led
+
+light:
+  - platform: binary
+    name: "Led rood"
+    output: gpio32_led
+    id: lampje_32
+
+  - platform: binary
+    name: "Led groen"
+    output: gpio33_led
+    id: lampje_33
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: 35
+      mode: INPUT
+      inverted: false
+    name: "Knop"
+    id: knop
+    filters:
+      - delayed_on: 10ms
+      - delayed_off: 10ms
+
+display:
+  - platform: st7789v
+    id: my_display
+    model: CUSTOM
+    cs_pin: 13
+    dc_pin: 5
+    reset_pin: 4
+    width: 240
+    height: 320
+    offset_width: 0 
+    offset_height: 0
+    rotation: 270
+    update_interval: 500ms
+    lambda: |-
+
+      auto t = id(esptime).now();
+      if (!t.is_valid()) return;
+
+      // --- Donkertecheck met tijd ---
+      if (id(als_pt204_lux).has_state() &&
+          id(als_pt204_lux).state < 3 &&
+          (t.hour >= 23 || t.hour < 7)) {
+        it.fill(Color(0,0,0));
+        return;
+      }
+
+      // --- Achtergrond ---
+      it.fill(Color(1,1,1));
+
+      // --- Tijd en datum ---
+      it.strftime(160, 10, id(font_large), Color(255,255,255), TextAlign::TOP_CENTER, "%H:%M", t);
+      it.strftime(160, 65, id(font_small), Color(160,160,160), TextAlign::TOP_CENTER, "%d-%m-%Y", t);
+
+      // --- Temperatuur kaart ---
+      int card_w = 150;
+      int card_h = 45;
+      int y = 95;
+
+      int x1 = 5;
+      it.filled_rectangle(x1, y, card_w, card_h, Color(12,12,12));
+      it.rectangle(x1, y, card_w, card_h, Color(80,80,80));
+      it.image(x1 + 7, y + 7, id(icon_temp), Color(244,67,54));
+      if (id(temp_thermostaat).has_state())
+        it.printf(x1 + 46, y + 22, id(font_medium), Color(255,255,255), TextAlign::CENTER_LEFT, "%.1f°C", id(temp_thermostaat).state);
+      else
+        it.print(x1 + 46, y + 22, id(font_medium), Color(255,255,255), TextAlign::CENTER_LEFT, "nan");
+
+      // --- Vocht kaart ---
+      int x2 = 5;
+      int y2 = y + card_h + 10;
+      it.filled_rectangle(x2, y2, card_w, card_h, Color(12,12,12));
+      it.rectangle(x2, y2, card_w, card_h, Color(80,80,80));
+      it.image(x2 + 7, y2 + 7, id(icon_hum), Color(33,150,243));
+      if (id(hum_hdc1080).has_state())
+        it.printf(x2 + 46, y2 + 22, id(font_medium), Color(255,255,255), TextAlign::CENTER_LEFT, "%.0f%%", id(hum_hdc1080).state);
+      else
+        it.print(x2 + 46, y2 + 22, id(font_medium), Color(255,255,255), TextAlign::CENTER_LEFT, "nan");
+
+      // --- Buitentemp kaart ---
+      int x3 = 320/2 + 5;
+      it.filled_rectangle(x3, y, card_w, card_h, Color(12,12,12));
+      it.rectangle(x3, y, card_w, card_h, Color(80,80,80));
+      it.image(x3 + 7, y + 7, id(icon_temp_outd), Color(244,67,54));
+      if (id(temp_buiten).has_state())
+        it.printf(x3 + 46, y + 22, id(font_medium), Color(255,255,255), TextAlign::CENTER_LEFT, "%.1f°C", id(temp_buiten).state);
+      else
+        it.print(x3 + 46, y + 22, id(font_medium), Color(255,255,255), TextAlign::CENTER_LEFT, "nan");
+
+      // --- Energie kaart ---
+      int y3 = y2;
+      it.filled_rectangle(x3, y3, card_w, card_h, Color(12,12,12));
+      it.rectangle(x3, y3, card_w, card_h, Color(80,80,80));
+
+      if (id(energie_verbruik).has_state() && id(energie_productie).has_state()) {
+        float verbruik = id(energie_verbruik).state;
+        float productie = id(energie_productie).state;
+
+        if (productie > verbruik) {
+          float vermogen = productie - verbruik;
+          it.image(x3 + 7, y3 + 7, id(icon_export), Color(146,107,199));
+          if (vermogen < 1.0)
+            it.printf(x3 + 46, y3 + 22, id(font_medium), Color(255,255,255), TextAlign::CENTER_LEFT, "%.0fW", vermogen * 1000);
+          else
+            it.printf(x3 + 46, y3 + 22, id(font_medium), Color(255,255,255), TextAlign::CENTER_LEFT, "%.2fkW", vermogen);
+        } else if (verbruik > productie) {
+          float vermogen = verbruik - productie;
+          it.image(x3 + 7, y3 + 7, id(icon_import), Color(72,143,194));
+          if (vermogen < 1.0)
+            it.printf(x3 + 46, y3 + 22, id(font_medium), Color(255,255,255), TextAlign::CENTER_LEFT, "%.0fW", vermogen * 1000);
+          else
+            it.printf(x3 + 46, y3 + 22, id(font_medium), Color(255,255,255), TextAlign::CENTER_LEFT, "%.2fkW", vermogen);
+        } else {
+          it.image(x3 + 7, y3 + 7, id(icon_import), Color(60,60,60));
+          it.print(x3 + 46, y3 + 22, id(font_medium), Color(180,180,180), TextAlign::CENTER_LEFT, "0W");
+        }
+
+      } else {
+        it.image(x3 + 7, y3 + 7, id(icon_import), Color(255,255,255));
+        it.print(x3 + 46, y3 + 22, id(font_medium), Color(255,255,255), TextAlign::CENTER_LEFT, "nan");
+      }
